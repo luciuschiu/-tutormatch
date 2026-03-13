@@ -1,0 +1,120 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --violet: #7C3AED;
+  --violet-light: #A78BFA;
+  --violet-dark: #5B21B6;
+  --coral: #F65868;
+  --coral-light: #FCA5AD;
+  --teal: #32D0C9;
+  --teal-light: #99F6E4;
+  --cream: #FFFBF5;
+  --charcoal: #1A1A2E;
+  --slate: #64748B;
+  --success: #10B981;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--cream);
+  color: var(--charcoal);
+  overflow-x: hidden;
+}
+
+h1, h2, h3, h4, h5, h6 { font-family: 'Bricolage Grotesque', sans-serif; }
+
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-12px); } }
+@keyframes bounce-in { 0% { opacity: 0; transform: scale(0.3); } 50% { transform: scale(1.05); } 70% { transform: scale(0.9); } 100% { opacity: 1; transform: scale(1); } }
+
+.animate-fade-in-up { animation: fadeInUp 0.6s ease-out forwards; opacity: 0; }
+.animate-float { animation: float 3s ease-in-out infinite; }
+.animate-bounce-in { animation: bounce-in 0.8s ease-out forwards; opacity: 0; }
+
+.delay-100 { animation-delay: 0.1s; }
+.delay-200 { animation-delay: 0.2s; }
+.delay-300 { animation-delay: 0.3s; }
+.delay-400 { animation-delay: 0.4s; }
+
+.gradient-text {
+  background: linear-gradient(135deg, var(--violet), var(--coral));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(124, 58, 237, 0.08);
+  transition: all 0.3s ease;
+}
+
+.glass-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 48px rgba(124, 58, 237, 0.15);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--violet), var(--violet-dark));
+  color: white;
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-weight: 700;
+  padding: 14px 32px;
+  border-radius: 16px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 16px;
+  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.3);
+  text-decoration: none;
+  display: inline-block;
+}
+
+.btn-primary:hover { transform: translateY(-2px) scale(1.02); box-shadow: 0 8px 28px rgba(124, 58, 237, 0.45); }
+.btn-primary:active { transform: translateY(0) scale(0.98); }
+
+.btn-secondary {
+  background: white;
+  color: var(--violet);
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-weight: 700;
+  padding: 14px 32px;
+  border-radius: 16px;
+  border: 2px solid var(--violet-light);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 16px;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.btn-secondary:hover { background: var(--violet); color: white; transform: translateY(-2px); border-color: var(--violet); }
+
+.blob-violet { position: absolute; width: 400px; height: 400px; background: radial-gradient(circle, rgba(124,58,237,0.12) 0%, transparent 70%); border-radius: 50%; pointer-events: none; }
+.blob-coral { position: absolute; width: 300px; height: 300px; background: radial-gradient(circle, rgba(246,88,104,0.1) 0%, transparent 70%); border-radius: 50%; pointer-events: none; }
+.blob-teal { position: absolute; width: 350px; height: 350px; background: radial-gradient(circle, rgba(50,208,201,0.1) 0%, transparent 70%); border-radius: 50%; pointer-events: none; }
+
+.input-field {
+  width: 100%;
+  padding: 14px 18px;
+  border: 2px solid #E2E8F0;
+  border-radius: 14px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 16px;
+  color: var(--charcoal);
+  background: white;
+  transition: all 0.3s ease;
+  outline: none;
+}
+
+.input-field:focus { border-color: var(--violet); box-shadow: 0 0 0 4px rgba(124,58,237,0.1); }
+.input-field::placeholder { color: #94A3B8; }
