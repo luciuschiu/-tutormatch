@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 export default function AuthPage() {
+  const router = useRouter()
   const [isLogin, setIsLogin] = useState(true)
   const [role, setRole] = useState<'student' | 'tutor'>('student')
   const [email, setEmail] = useState('')
@@ -13,6 +15,12 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) router.push('/dashboard')
+    })
+  }, [router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -23,14 +31,14 @@ export default function AuthPage() {
       if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error
-        setMessage('Logged in! Redirecting...')
+        router.push('/dashboard')
       } else {
         const { error } = await supabase.auth.signUp({
           email, password,
           options: { data: { full_name: name, role: role } }
         })
         if (error) throw error
-        setMessage('Check your email for a confirmation link! 📧')
+        router.push('/dashboard')
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
