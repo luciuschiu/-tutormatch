@@ -99,6 +99,7 @@ export default function SearchPage() {
   const [tutors, setTutors] = useState<TutorWithProfile[]>([])
   const [userId, setUserId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [startingChat, setStartingChat] = useState<string | null>(null)
   const [subjectFilter, setSubjectFilter] = useState('')
   const [areaFilter, setAreaFilter] = useState('')
   const [maxPrice, setMaxPrice] = useState('')
@@ -143,25 +144,30 @@ export default function SearchPage() {
 
   async function startChat(tutorId: string) {
     if (!userId) { router.push('/auth'); return }
+    if (startingChat) return
+    setStartingChat(tutorId)
 
-    const { data: existing } = await supabase
-      .from('conversations')
-      .select('id')
-      .eq('student_id', userId)
-      .eq('tutor_id', tutorId)
-      .single()
+    try {
+      const { data: existing } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('student_id', userId)
+        .eq('tutor_id', tutorId)
 
-    if (existing) {
+      if (existing && existing.length > 0) {
+        router.push('/chat')
+        return
+      }
+
+      await supabase.from('conversations').insert({
+        student_id: userId,
+        tutor_id: tutorId
+      })
+
       router.push('/chat')
-      return
+    } finally {
+      setStartingChat(null)
     }
-
-    await supabase.from('conversations').insert({
-      student_id: userId,
-      tutor_id: tutorId
-    })
-
-    router.push('/chat')
   }
 
   const filtered = tutors.filter(t => {
@@ -247,7 +253,9 @@ export default function SearchPage() {
               </div>
 
               <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-                <button onClick={() => startChat(tutor.id)} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', background: '#7C3AED', color: 'white', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>💬 Message</button>
+                <button onClick={() => startChat(tutor.id)} disabled={startingChat === tutor.id} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', background: startingChat === tutor.id ? '#A78BFA' : '#7C3AED', color: 'white', fontWeight: 700, cursor: startingChat === tutor.id ? 'wait' : 'pointer', fontSize: '14px' }}>
+                  {startingChat === tutor.id ? '⏳ Opening...' : '💬 Message'}
+                </button>
                 <button style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '2px solid #E2E8F0', background: 'white', color: '#1A1A2E', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>📅 Book Lesson</button>
               </div>
             </div>
