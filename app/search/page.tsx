@@ -34,95 +34,70 @@ type StudentData = {
 
 function calculateMatch(tutor: TutorWithProfile, student: StudentData): number {
   let score = 0
-  let totalWeight = 0
 
-  // Subject match (25%)
-  const weight1 = 25
-  totalWeight += weight1
   const tutorSubjects = tutor.tutor_profile.subjects || []
   const studentSubjects = student.subjects || []
   if (studentSubjects.length > 0 && tutorSubjects.length > 0) {
     const overlap = studentSubjects.filter(s => tutorSubjects.includes(s)).length
-    score += weight1 * (overlap / studentSubjects.length)
+    score += 25 * (overlap / studentSubjects.length)
   } else {
-    score += weight1 * 0.5
+    score += 12
   }
 
-  // Level match (15%)
-  const weight2 = 15
-  totalWeight += weight2
   const tutorLevels = tutor.tutor_profile.levels || []
   if (student.level && tutorLevels.includes(student.level)) {
-    score += weight2
+    score += 15
   } else if (!student.level) {
-    score += weight2 * 0.5
+    score += 7
   }
 
-  // Location match (15%)
-  const weight3 = 15
-  totalWeight += weight3
   if (student.location_area && tutor.tutor_profile.location_area) {
     if (student.location_area === tutor.tutor_profile.location_area) {
-      score += weight3
+      score += 15
     } else {
-      score += weight3 * 0.3
+      score += 4
     }
   } else {
-    score += weight3 * 0.5
+    score += 7
   }
 
-  // Budget match (12%)
-  const weight4 = 12
-  totalWeight += weight4
   const rate = tutor.tutor_profile.hourly_rate
   if (rate && student.budget_max) {
     if (rate <= student.budget_max && rate >= (student.budget_min || 0)) {
-      score += weight4
+      score += 12
     } else if (rate <= student.budget_max * 1.2) {
-      score += weight4 * 0.5
+      score += 6
     }
   } else {
-    score += weight4 * 0.5
+    score += 6
   }
 
-  // Rating (10%)
-  const weight5 = 10
-  totalWeight += weight5
   const rating = tutor.tutor_profile.rating || 0
-  score += weight5 * (rating / 5)
+  score += 10 * (rating / 5)
 
-  // Teaching style match (8%)
-  const weight6 = 8
-  totalWeight += weight6
   if (student.learning_style && tutor.tutor_profile.teaching_style) {
     if (student.learning_style === tutor.tutor_profile.teaching_style) {
-      score += weight6
+      score += 8
     } else {
-      score += weight6 * 0.3
+      score += 2
     }
   } else {
-    score += weight6 * 0.5
+    score += 4
   }
 
-  // Experience (10%)
-  const weight7 = 10
-  totalWeight += weight7
   const exp = tutor.tutor_profile.experience_years || 0
-  score += weight7 * Math.min(exp / 5, 1)
+  score += 10 * Math.min(exp / 5, 1)
 
-  // Reviews count (5%)
-  const weight8 = 5
-  totalWeight += weight8
   const reviews = tutor.tutor_profile.total_reviews || 0
-  score += weight8 * Math.min(reviews / 30, 1)
+  score += 5 * Math.min(reviews / 30, 1)
 
-  return Math.round((score / totalWeight) * 100)
+  return Math.round(score)
 }
 
 export default function SearchPage() {
   const router = useRouter()
   const [tutors, setTutors] = useState<TutorWithProfile[]>([])
-  const [studentData, setStudentData] = useState<StudentData | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [subjectFilter, setSubjectFilter] = useState('')
   const [areaFilter, setAreaFilter] = useState('')
@@ -136,42 +111,57 @@ export default function SearchPage() {
   }, [])
 
   async function loadData() {
-    const { data: { session } } = await supabase.auth.getSession()
-
     let sData: StudentData = { subjects: [], level: null, location_area: null, budget_min: null, budget_max: null, learning_style: null }
 
+    const { data: { session } } = await supabase.auth.getSession()
     if (session) {
+      setUserId(session.user.id)
       const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single()
-      if (profile?.role === 'student') {
+      if (profile && profile.role === 'student') {
         const { data: sp } = await supabase.from('student_profiles').select('*').eq('id', session.user.id).single()
         if (sp) sData = sp
       }
     }
-    setStudentData(sData)
 
-    const { data: tutorProfiles } = await supabase
-      .from('profiles')
-      .select('id, full_name, bio')
-      .eq('role', 'tutor')
+    const { data: tutorProfiles } = await supabase.from('profiles').select('id, full_name, bio').eq('role', 'tutor')
 
     if (tutorProfiles) {
-      const tutorsWithDetails: TutorWithProfile[] = []
+      const results: TutorWithProfile[] = []
       for (const tp of tutorProfiles) {
-        const { data: details } = await supabase
-          .from('tutor_profiles')
-          .select('*')
-          .eq('id', tp.id)
-          .single()
+        const { data: details } = await supabase.from('tutor_profiles').select('*').eq('id', tp.id).single()
         if (details) {
           const tutor: TutorWithProfile = { ...tp, tutor_profile: details }
           tutor.matchScore = calculateMatch(tutor, sData)
-          tutorsWithDetails.push(tutor)
+          results.push(tutor)
         }
       }
-      tutorsWithDetails.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0))
-      setTutors(tutorsWithDetails)
+      results.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0))
+      setTutors(results)
     }
     setLoading(false)
+  }
+
+  async function startChat(tutorId: string) {
+    if (!userId) { router.push('/auth'); return }
+
+    const { data: existing } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('student_id', userId)
+      .eq('tutor_id', tutorId)
+      .single()
+
+    if (existing) {
+      router.push('/chat')
+      return
+    }
+
+    await supabase.from('conversations').insert({
+      student_id: userId,
+      tutor_id: tutorId
+    })
+
+    router.push('/chat')
   }
 
   const filtered = tutors.filter(t => {
@@ -199,7 +189,10 @@ export default function SearchPage() {
           <span style={{ fontSize: '24px' }}>🦦</span>
           <span style={{ fontWeight: 800, fontSize: '18px', color: '#7C3AED' }}>TutorMatch</span>
         </Link>
-        <Link href="/dashboard" style={{ fontSize: '14px', color: '#7C3AED', fontWeight: 600, textDecoration: 'none' }}>← Back to Dashboard</Link>
+        <div style={{ display: 'flex', gap: '16px' }}>
+          <Link href="/chat" style={{ fontSize: '14px', color: '#7C3AED', fontWeight: 600, textDecoration: 'none' }}>💬 Chat</Link>
+          <Link href="/dashboard" style={{ fontSize: '14px', color: '#7C3AED', fontWeight: 600, textDecoration: 'none' }}>← Dashboard</Link>
+        </div>
       </nav>
 
       <div style={{ maxWidth: '900px', margin: '0 auto', padding: '0 24px 60px' }}>
@@ -208,7 +201,6 @@ export default function SearchPage() {
           <p style={{ color: '#64748B' }}>Ranked by compatibility with your profile</p>
         </div>
 
-        {/* Filters */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
           <select value={subjectFilter} onChange={e => setSubjectFilter(e.target.value)} style={{ padding: '10px 14px', borderRadius: '10px', border: '2px solid #E2E8F0', fontSize: '14px', background: 'white', color: '#1A1A2E' }}>
             <option value="">All Subjects</option>
@@ -221,32 +213,20 @@ export default function SearchPage() {
           <input type="number" placeholder="Max $/hr" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} style={{ padding: '10px 14px', borderRadius: '10px', border: '2px solid #E2E8F0', fontSize: '14px', width: '120px', background: 'white', color: '#1A1A2E' }} />
         </div>
 
-        {/* Results */}
         <p style={{ fontSize: '14px', color: '#64748B', marginBottom: '16px' }}>{filtered.length} tutor{filtered.length !== 1 ? 's' : ''} found</p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {filtered.map(tutor => (
-            <div key={tutor.id} style={{ background: 'white', borderRadius: '16px', padding: '20px', border: '1px solid #E2E8F0', transition: 'box-shadow 0.3s', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+            <div key={tutor.id} style={{ background: 'white', borderRadius: '16px', padding: '20px', border: '1px solid #E2E8F0', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: '#F3E8FF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>👩‍🏫</div>
                   <div>
                     <h3 style={{ fontSize: '18px', fontWeight: 700, margin: 0 }}>{tutor.full_name}</h3>
-                    <p style={{ fontSize: '13px', color: '#64748B', margin: '2px 0 0' }}>
-                      {tutor.tutor_profile.location_area || 'Singapore'} • {tutor.tutor_profile.experience_years || 0} yrs exp
-                    </p>
+                    <p style={{ fontSize: '13px', color: '#64748B', margin: '2px 0 0' }}>{tutor.tutor_profile.location_area || 'Singapore'} • {tutor.tutor_profile.experience_years || 0} yrs exp</p>
                   </div>
                 </div>
-                <div style={{
-                  padding: '6px 14px',
-                  borderRadius: '20px',
-                  fontWeight: 800,
-                  fontSize: '15px',
-                  color: 'white',
-                  background: (tutor.matchScore || 0) >= 80 ? 'linear-gradient(135deg, #10B981, #059669)' :
-                             (tutor.matchScore || 0) >= 60 ? 'linear-gradient(135deg, #F59E0B, #D97706)' :
-                             'linear-gradient(135deg, #64748B, #475569)'
-                }}>
+                <div style={{ padding: '6px 14px', borderRadius: '20px', fontWeight: 800, fontSize: '15px', color: 'white', background: (tutor.matchScore || 0) >= 80 ? 'linear-gradient(135deg, #10B981, #059669)' : (tutor.matchScore || 0) >= 60 ? 'linear-gradient(135deg, #F59E0B, #D97706)' : 'linear-gradient(135deg, #64748B, #475569)' }}>
                   {tutor.matchScore}% match
                 </div>
               </div>
@@ -263,13 +243,11 @@ export default function SearchPage() {
                 <span style={{ fontSize: '14px', fontWeight: 600 }}>⭐ {tutor.tutor_profile.rating.toFixed(1)} ({tutor.tutor_profile.total_reviews} reviews)</span>
                 <span style={{ fontSize: '14px', fontWeight: 600 }}>💰 S${tutor.tutor_profile.hourly_rate}/hr</span>
                 <span style={{ fontSize: '14px' }}>📚 {(tutor.tutor_profile.levels || []).join(', ')}</span>
-                {tutor.tutor_profile.teaching_style && (
-                  <span style={{ fontSize: '14px' }}>🎯 {tutor.tutor_profile.teaching_style}</span>
-                )}
+                {tutor.tutor_profile.teaching_style && <span style={{ fontSize: '14px' }}>🎯 {tutor.tutor_profile.teaching_style}</span>}
               </div>
 
               <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-                <button style={{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', background: '#7C3AED', color: 'white', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>💬 Message</button>
+                <button onClick={() => startChat(tutor.id)} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', background: '#7C3AED', color: 'white', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>💬 Message</button>
                 <button style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '2px solid #E2E8F0', background: 'white', color: '#1A1A2E', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>📅 Book Lesson</button>
               </div>
             </div>
