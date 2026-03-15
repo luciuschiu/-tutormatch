@@ -34,63 +34,27 @@ type StudentData = {
 
 function calculateMatch(tutor: TutorWithProfile, student: StudentData): number {
   let score = 0
-
   const tutorSubjects = tutor.tutor_profile.subjects || []
   const studentSubjects = student.subjects || []
   if (studentSubjects.length > 0 && tutorSubjects.length > 0) {
     const overlap = studentSubjects.filter(s => tutorSubjects.includes(s)).length
     score += 25 * (overlap / studentSubjects.length)
-  } else {
-    score += 12
-  }
-
+  } else { score += 12 }
   const tutorLevels = tutor.tutor_profile.levels || []
-  if (student.level && tutorLevels.includes(student.level)) {
-    score += 15
-  } else if (!student.level) {
-    score += 7
-  }
-
+  if (student.level && tutorLevels.includes(student.level)) { score += 15 } else if (!student.level) { score += 7 }
   if (student.location_area && tutor.tutor_profile.location_area) {
-    if (student.location_area === tutor.tutor_profile.location_area) {
-      score += 15
-    } else {
-      score += 4
-    }
-  } else {
-    score += 7
-  }
-
+    if (student.location_area === tutor.tutor_profile.location_area) { score += 15 } else { score += 4 }
+  } else { score += 7 }
   const rate = tutor.tutor_profile.hourly_rate
   if (rate && student.budget_max) {
-    if (rate <= student.budget_max && rate >= (student.budget_min || 0)) {
-      score += 12
-    } else if (rate <= student.budget_max * 1.2) {
-      score += 6
-    }
-  } else {
-    score += 6
-  }
-
-  const rating = tutor.tutor_profile.rating || 0
-  score += 10 * (rating / 5)
-
+    if (rate <= student.budget_max && rate >= (student.budget_min || 0)) { score += 12 } else if (rate <= student.budget_max * 1.2) { score += 6 }
+  } else { score += 6 }
+  score += 10 * ((tutor.tutor_profile.rating || 0) / 5)
   if (student.learning_style && tutor.tutor_profile.teaching_style) {
-    if (student.learning_style === tutor.tutor_profile.teaching_style) {
-      score += 8
-    } else {
-      score += 2
-    }
-  } else {
-    score += 4
-  }
-
-  const exp = tutor.tutor_profile.experience_years || 0
-  score += 10 * Math.min(exp / 5, 1)
-
-  const reviews = tutor.tutor_profile.total_reviews || 0
-  score += 5 * Math.min(reviews / 30, 1)
-
+    if (student.learning_style === tutor.tutor_profile.teaching_style) { score += 8 } else { score += 2 }
+  } else { score += 4 }
+  score += 10 * Math.min((tutor.tutor_profile.experience_years || 0) / 5, 1)
+  score += 5 * Math.min((tutor.tutor_profile.total_reviews || 0) / 30, 1)
   return Math.round(score)
 }
 
@@ -107,13 +71,10 @@ export default function SearchPage() {
   const SUBJECTS = ['A-Math', 'E-Math', 'H2 Math', 'H2 Physics', 'H2 Chemistry', 'H2 Biology', 'H2 Economics', 'English', 'General Paper', 'Chinese', 'Malay', 'Tamil', 'History', 'Geography', 'Literature', 'Computing']
   const AREAS = ['Ang Mo Kio', 'Bedok', 'Bishan', 'Bukit Batok', 'Bukit Merah', 'Bukit Timah', 'Clementi', 'Hougang', 'Jurong East', 'Jurong West', 'Kallang', 'Marine Parade', 'Pasir Ris', 'Punggol', 'Queenstown', 'Sengkang', 'Serangoon', 'Tampines', 'Toa Payoh', 'Woodlands', 'Yishun']
 
-  useEffect(() => {
-    loadData()
-  }, [])
+  useEffect(() => { loadData() }, [])
 
   async function loadData() {
     let sData: StudentData = { subjects: [], level: null, location_area: null, budget_min: null, budget_max: null, learning_style: null }
-
     const { data: { session } } = await supabase.auth.getSession()
     if (session) {
       setUserId(session.user.id)
@@ -123,9 +84,7 @@ export default function SearchPage() {
         if (sp) sData = sp
       }
     }
-
     const { data: tutorProfiles } = await supabase.from('profiles').select('id, full_name, bio').eq('role', 'tutor')
-
     if (tutorProfiles) {
       const results: TutorWithProfile[] = []
       for (const tp of tutorProfiles) {
@@ -146,28 +105,12 @@ export default function SearchPage() {
     if (!userId) { router.push('/auth'); return }
     if (startingChat) return
     setStartingChat(tutorId)
-
     try {
-      const { data: existing } = await supabase
-        .from('conversations')
-        .select('id')
-        .eq('student_id', userId)
-        .eq('tutor_id', tutorId)
-
-      if (existing && existing.length > 0) {
-        router.push('/chat')
-        return
-      }
-
-      await supabase.from('conversations').insert({
-        student_id: userId,
-        tutor_id: tutorId
-      })
-
+      const { data: existing } = await supabase.from('conversations').select('id').eq('student_id', userId).eq('tutor_id', tutorId)
+      if (existing && existing.length > 0) { router.push('/chat'); return }
+      await supabase.from('conversations').insert({ student_id: userId, tutor_id: tutorId })
       router.push('/chat')
-    } finally {
-      setStartingChat(null)
-    }
+    } finally { setStartingChat(null) }
   }
 
   const filtered = tutors.filter(t => {
@@ -196,6 +139,7 @@ export default function SearchPage() {
           <span style={{ fontWeight: 800, fontSize: '18px', color: '#7C3AED' }}>TutorMatch</span>
         </Link>
         <div style={{ display: 'flex', gap: '16px' }}>
+          <Link href="/booking" style={{ fontSize: '14px', color: '#7C3AED', fontWeight: 600, textDecoration: 'none' }}>📅 Bookings</Link>
           <Link href="/chat" style={{ fontSize: '14px', color: '#7C3AED', fontWeight: 600, textDecoration: 'none' }}>💬 Chat</Link>
           <Link href="/dashboard" style={{ fontSize: '14px', color: '#7C3AED', fontWeight: 600, textDecoration: 'none' }}>← Dashboard</Link>
         </div>
@@ -236,27 +180,23 @@ export default function SearchPage() {
                   {tutor.matchScore}% match
                 </div>
               </div>
-
               {tutor.bio && <p style={{ fontSize: '14px', color: '#64748B', lineHeight: 1.5, marginBottom: '12px' }}>{tutor.bio}</p>}
-
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
                 {(tutor.tutor_profile.subjects || []).map(s => (
                   <span key={s} style={{ padding: '4px 10px', borderRadius: '8px', fontSize: '12px', fontWeight: 600, background: '#F3E8FF', color: '#7C3AED' }}>{s}</span>
                 ))}
               </div>
-
               <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <span style={{ fontSize: '14px', fontWeight: 600 }}>⭐ {tutor.tutor_profile.rating.toFixed(1)} ({tutor.tutor_profile.total_reviews} reviews)</span>
                 <span style={{ fontSize: '14px', fontWeight: 600 }}>💰 S${tutor.tutor_profile.hourly_rate}/hr</span>
                 <span style={{ fontSize: '14px' }}>📚 {(tutor.tutor_profile.levels || []).join(', ')}</span>
                 {tutor.tutor_profile.teaching_style && <span style={{ fontSize: '14px' }}>🎯 {tutor.tutor_profile.teaching_style}</span>}
               </div>
-
               <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
                 <button onClick={() => startChat(tutor.id)} disabled={startingChat === tutor.id} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', background: startingChat === tutor.id ? '#A78BFA' : '#7C3AED', color: 'white', fontWeight: 700, cursor: startingChat === tutor.id ? 'wait' : 'pointer', fontSize: '14px' }}>
                   {startingChat === tutor.id ? '⏳ Opening...' : '💬 Message'}
                 </button>
-                <button style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '2px solid #E2E8F0', background: 'white', color: '#1A1A2E', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>📅 Book Lesson</button>
+                <button onClick={() => router.push('/booking?tutor=' + tutor.id)} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '2px solid #E2E8F0', background: 'white', color: '#1A1A2E', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>📅 Book Lesson</button>
               </div>
             </div>
           ))}
