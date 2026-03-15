@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import Link from 'next/link'
 
 export default function AuthPage() {
   const [email, setEmail] = useState('')
@@ -18,7 +19,7 @@ export default function AuthPage() {
       if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) { setMessage('Error: ' + error.message); return }
-        setMessage('Logged in! Going to dashboard...')
+        setMessage('Logged in!')
         window.location.href = '/dashboard'
       } else {
         const { error } = await supabase.auth.signUp({
@@ -26,7 +27,7 @@ export default function AuthPage() {
           options: { data: { full_name: name, role } }
         })
         if (error) { setMessage('Error: ' + error.message); return }
-        setMessage('Signed up! Going to dashboard...')
+        setMessage('Signed up!')
         window.location.href = '/dashboard'
       }
     } catch (err) {
@@ -35,34 +36,75 @@ export default function AuthPage() {
   }
 
   return (
-    <div style={{ maxWidth: '400px', margin: '80px auto', padding: '20px', fontFamily: 'sans-serif' }}>
-      <h1 style={{ textAlign: 'center' }}>🦦 TutorMatch</h1>
-      <h2 style={{ textAlign: 'center' }}>{isLogin ? 'Log In' : 'Sign Up'}</h2>
+    <main className="min-h-screen relative flex items-center justify-center px-4" style={{ background: 'var(--cream)' }}>
+      <div className="blob-amber" style={{ top: '-200px', right: '-100px' }} />
+      <div className="blob-teal" style={{ bottom: '-100px', left: '-100px' }} />
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {!isLogin && (
-          <>
-            <input type="text" placeholder="Full Name" value={name} onChange={e => setName(e.target.value)} required style={{ padding: '12px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '16px' }} />
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button type="button" onClick={() => setRole('student')} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: role === 'student' ? '#7C3AED' : '#eee', color: role === 'student' ? 'white' : 'black', cursor: 'pointer', fontWeight: 'bold' }}>🎓 Student</button>
-              <button type="button" onClick={() => setRole('tutor')} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: role === 'tutor' ? '#32D0C9' : '#eee', color: role === 'tutor' ? 'white' : 'black', cursor: 'pointer', fontWeight: 'bold' }}>👩‍🏫 Tutor</button>
+      <div className="relative z-10 w-full max-w-md">
+        <Link href="/" className="flex items-center justify-center gap-3 mb-8" style={{ textDecoration: 'none' }}>
+          <span className="text-4xl animate-wiggle">🦫</span>
+          <span style={{ fontFamily: 'Nunito', fontWeight: 900, fontSize: '28px' }} className="gradient-text">TutorMatch</span>
+        </Link>
+
+        <div className="glass-card p-8" style={{ borderRadius: '24px' }}>
+          <h2 style={{ fontFamily: 'Nunito', fontSize: '24px', fontWeight: 900, textAlign: 'center', marginBottom: '4px', color: 'var(--charcoal)' }}>
+            {isLogin ? 'Welcome back! 🦫' : 'Join TutorMatch'}
+          </h2>
+          <p style={{ textAlign: 'center', fontSize: '14px', color: 'var(--slate)', marginBottom: '24px' }}>
+            {isLogin ? 'Log in to find your perfect match' : 'Start learning or teaching today'}
+          </p>
+
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {!isLogin && (
+              <>
+                <div>
+                  <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--charcoal)', marginBottom: '6px', display: 'block', fontFamily: 'Nunito' }}>Full Name</label>
+                  <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Tan Wei Ming" className="input-field" required />
+                </div>
+                <div>
+                  <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--charcoal)', marginBottom: '6px', display: 'block', fontFamily: 'Nunito' }}>I am a...</label>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setRole('student')} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: 'none', background: role === 'student' ? 'linear-gradient(135deg, var(--amber), var(--amber-dark))' : 'white', color: role === 'student' ? 'white' : 'var(--slate)', cursor: 'pointer', fontWeight: 800, fontFamily: 'Nunito', fontSize: '14px', boxShadow: role === 'student' ? '0 4px 16px rgba(230,126,34,0.3)' : '0 1px 4px rgba(0,0,0,0.06)', transition: 'all 0.3s' }}>
+                      🎓 Student
+                    </button>
+                    <button type="button" onClick={() => setRole('tutor')} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: 'none', background: role === 'tutor' ? 'linear-gradient(135deg, var(--teal), #1E8C8C)' : 'white', color: role === 'tutor' ? 'white' : 'var(--slate)', cursor: 'pointer', fontWeight: 800, fontFamily: 'Nunito', fontSize: '14px', boxShadow: role === 'tutor' ? '0 4px 16px rgba(43,165,165,0.3)' : '0 1px 4px rgba(0,0,0,0.06)', transition: 'all 0.3s' }}>
+                      👩‍🏫 Tutor
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+            <div>
+              <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--charcoal)', marginBottom: '6px', display: 'block', fontFamily: 'Nunito' }}>Email</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="your@email.com" className="input-field" required />
             </div>
-          </>
-        )}
-        <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required style={{ padding: '12px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '16px' }} />
-        <input type="password" placeholder="Password (min 6 chars)" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} style={{ padding: '12px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '16px' }} />
-        <button type="submit" style={{ padding: '14px', borderRadius: '8px', border: 'none', background: '#7C3AED', color: 'white', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }}>
-          {isLogin ? 'Log In →' : 'Sign Up →'}
-        </button>
-      </form>
+            <div>
+              <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--charcoal)', marginBottom: '6px', display: 'block', fontFamily: 'Nunito' }}>Password</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 6 characters" className="input-field" minLength={6} required />
+            </div>
 
-      {message && <p style={{ textAlign: 'center', marginTop: '16px', padding: '12px', background: '#f0f0f0', borderRadius: '8px' }}>{message}</p>}
+            {message && (
+              <div style={{ padding: '12px', borderRadius: '12px', background: message.startsWith('Error') ? 'rgba(231,76,60,0.08)' : 'rgba(39,174,96,0.08)', border: message.startsWith('Error') ? '1px solid rgba(231,76,60,0.2)' : '1px solid rgba(39,174,96,0.2)' }}>
+                <p style={{ fontSize: '14px', fontWeight: 600, color: message.startsWith('Error') ? '#E74C3C' : 'var(--success)', margin: 0 }}>
+                  {message.startsWith('Error') ? '❌' : '✅'} {message}
+                </p>
+              </div>
+            )}
 
-      <p style={{ textAlign: 'center', marginTop: '16px' }}>
-        <button onClick={() => { setIsLogin(!isLogin); setMessage('') }} style={{ background: 'none', border: 'none', color: '#7C3AED', cursor: 'pointer', fontWeight: 'bold' }}>
-          {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Log in'}
-        </button>
-      </p>
-    </div>
+            <button type="submit" className="btn-primary" style={{ width: '100%', textAlign: 'center', marginTop: '4px', fontSize: '16px' }}>
+              {isLogin ? 'Log in →' : `Sign up as ${role} →`}
+            </button>
+          </form>
+
+          <div className="text-center mt-6">
+            <button type="button" onClick={() => { setIsLogin(!isLogin); setMessage('') }} style={{ fontSize: '14px', color: 'var(--amber)', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Nunito' }}>
+              {isLogin ? "Don't have an account? Sign up free" : 'Already have an account? Log in'}
+            </button>
+          </div>
+        </div>
+
+        <p className="text-center mt-6" style={{ fontSize: '12px', color: 'var(--slate)' }}>🦫 Capy approves this message</p>
+      </div>
+    </main>
   )
 }
