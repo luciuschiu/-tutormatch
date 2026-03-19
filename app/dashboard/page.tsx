@@ -1,138 +1,335 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, TouchEvent } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
+// Types
 type Profile = { id: string; full_name: string; role: string; bio: string | null; avatar_url: string | null }
 type StudentProfile = { level: string | null; subjects: string[]; location_area: string | null; budget_min: number | null; budget_max: number | null; learning_style: string | null }
-type TutorProfile = { subjects: string[]; levels: string[]; hourly_rate: number | null; location_area: string | null; teaching_style: string | null; experience_years: number | null; qualifications: string | null; rating: number; total_reviews: number }
+type TutorProfileData = { subjects: string[]; levels: string[]; hourly_rate: number | null; location_area: string | null; teaching_style: string | null; experience_years: number | null; qualifications: string | null; rating: number; total_reviews: number }
+type TutorWithProfile = { id: string; full_name: string; bio: string | null; tutor_profile: TutorProfileData; matchScore?: number }
+type StudentData = { subjects: string[]; level: string | null; location_area: string | null; budget_min: number | null; budget_max: number | null; learning_style: string | null }
+type Conversation = { id: string; student_id: string; tutor_id: string; last_message: string | null; last_message_at: string; other_name: string; other_role: string }
+type Message = { id: string; conversation_id: string; sender_id: string; content: string; read: boolean; created_at: string }
+type Booking = { id: string; student_id: string; tutor_id: string; subject: string; start_time: string; end_time: string; status: string; notes: string | null; price: number | null; other_name: string; other_role: string }
 
-const SUBJECTS = ['A-Math', 'E-Math', 'H2 Math', 'H2 Physics', 'H2 Chemistry', 'H2 Biology', 'H2 Economics', 'English', 'General Paper', 'Chinese', 'Malay', 'Tamil', 'History', 'Geography', 'Literature', 'Computing']
-const AREAS = ['Ang Mo Kio', 'Bedok', 'Bishan', 'Bukit Batok', 'Bukit Merah', 'Bukit Timah', 'Clementi', 'Hougang', 'Jurong East', 'Jurong West', 'Kallang', 'Marine Parade', 'Pasir Ris', 'Punggol', 'Queenstown', 'Sengkang', 'Serangoon', 'Tampines', 'Toa Payoh', 'Woodlands', 'Yishun']
-const LEVELS = ['O-Level', 'A-Level', 'IP', 'IB']
-const STYLES = ['visual', 'practice', 'discussion', 'structured']
+function calculateMatch(tutor: TutorWithProfile, student: StudentData): number {
+  let score = 0
+  const ts = tutor.tutor_profile.subjects || [], ss = student.subjects || []
+  if (ss.length > 0 && ts.length > 0) { score += 25 * (ss.filter(s => ts.includes(s)).length / ss.length) } else { score += 12 }
+  if (student.level && (tutor.tutor_profile.levels || []).includes(student.level)) { score += 15 } else if (!student.level) { score += 7 }
+  if (student.location_area && tutor.tutor_profile.location_area) { score += student.location_area === tutor.tutor_profile.location_area ? 15 : 4 } else { score += 7 }
+  const rate = tutor.tutor_profile.hourly_rate
+  if (rate && student.budget_max) { if (rate <= student.budget_max && rate >= (student.budget_min || 0)) { score += 12 } else if (rate <= student.budget_max * 1.2) { score += 6 } } else { score += 6 }
+  score += 10 * ((tutor.tutor_profile.rating || 0) / 5)
+  if (student.learning_style && tutor.tutor_profile.teaching_style) { score += student.learning_style === tutor.tutor_profile.teaching_style ? 8 : 2 } else { score += 4 }
+  score += 10 * Math.min((tutor.tutor_profile.experience_years || 0) / 5, 1)
+  score += 5 * Math.min((tutor.tutor_profile.total_reviews || 0) / 30, 1)
+  return Math.round(score)
+}
 
-export default function Dashboard() {
-  const router = useRouter()
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null)
-  const [tutorProfile, setTutorProfile] = useState<TutorProfile | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState('')
+// ==================== BOOKING TAB ====================
+function BookingTab({ userId, bookings, onRefresh }: { userId: string; bookings: Booking[]; onRefresh: () => void }) {
+  async function updateStatus(id: string, status: string) { await supabase.from('bookings').update({ status }).eq('id', id); onRefresh() }
+  function statusStyle(s: string) { const m: Record<string, any> = { pending: { bg: '#FEF3C7', color: '#D97706', label: '⏳ Pending' }, confirmed: { bg: '#D1FAE5', color: '#059669', label: '✅ Confirmed' }, cancelled: { bg: '#FEE2E2', color: '#DC2626', label: '❌ Cancelled' }, completed: { bg: '#FFF0DB', color: '#E67E22', label: '🎓 Done' } }; return m[s] || { bg: '#F5EDE3', color: '#6B5B4E', label: s } }
 
-  useEffect(() => { loadProfile() }, [])
+  return (
+    <div style={{ padding: '16px' }}>
+      <h2 style={{ fontSize: '22px', fontWeight: 900, fontFamily: 'Nunito', marginBottom: '16px' }}>📅 Bookings</h2>
+      {bookings.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px 20px' }}><div style={{ fontSize: '48px', marginBottom: '8px' }}>📅</div><p style={{ fontWeight: 700, fontFamily: 'Nunito', color: '#6B5B4E' }}>No bookings yet</p></div>
+      ) : bookings.map(b => { const s = statusStyle(b.status); const d = new Date(b.start_time); const isOwner = b.student_id === userId; return (
+        <div key={b.id} style={{ background: 'white', borderRadius: '16px', padding: '16px', border: '1px solid #E8DFD4', marginBottom: '10px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <div><p style={{ fontWeight: 800, fontSize: '15px', fontFamily: 'Nunito', margin: 0 }}>{b.subject}</p><p style={{ fontSize: '12px', color: '#6B5B4E', margin: '2px 0 0' }}>with {b.other_name}</p></div>
+            <span style={{ padding: '3px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 800, background: s.bg, color: s.color, fontFamily: 'Nunito', height: 'fit-content' }}>{s.label}</span>
+          </div>
+          <div style={{ display: 'flex', gap: '12px', fontSize: '13px', color: '#6B5B4E', marginBottom: '10px', flexWrap: 'wrap' }}>
+            <span>📅 {d.toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+            <span>🕐 {d.toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit' })}</span>
+            {b.price && <span>💰 S${b.price}</span>}
+          </div>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {b.status === 'pending' && !isOwner && <button onClick={() => updateStatus(b.id, 'confirmed')} style={{ padding: '6px 12px', borderRadius: '8px', border: 'none', background: '#27AE60', color: 'white', fontWeight: 800, cursor: 'pointer', fontSize: '12px', fontFamily: 'Nunito' }}>✅ Confirm</button>}
+            {(b.status === 'pending' || b.status === 'confirmed') && <button onClick={() => updateStatus(b.id, 'cancelled')} style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #FCA5A5', background: 'white', color: '#DC2626', fontWeight: 800, cursor: 'pointer', fontSize: '12px', fontFamily: 'Nunito' }}>Cancel</button>}
+            {b.status === 'confirmed' && isOwner && <button onClick={() => updateStatus(b.id, 'completed')} style={{ padding: '6px 12px', borderRadius: '8px', border: 'none', background: '#E67E22', color: 'white', fontWeight: 800, cursor: 'pointer', fontSize: '12px', fontFamily: 'Nunito' }}>🎓 Complete</button>}
+          </div>
+        </div>
+      ) })}
+    </div>
+  )
+}
 
-  async function loadProfile() {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) { router.push('/auth'); return }
-    const { data: profileData } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
-    if (profileData) {
-      setProfile(profileData)
-      if (profileData.role === 'student') {
-        const { data } = await supabase.from('student_profiles').select('*').eq('id', session.user.id).single()
-        if (data) setStudentProfile(data)
-      } else {
-        const { data } = await supabase.from('tutor_profiles').select('*').eq('id', session.user.id).single()
-        if (data) setTutorProfile(data)
-      }
+// ==================== CHAT TAB ====================
+function ChatTab({ userId }: { userId: string }) {
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [activeConvo, setActiveConvo] = useState<Conversation | null>(null)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [newMessage, setNewMessage] = useState('')
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => { loadConversations() }, [])
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+  useEffect(() => {
+    if (!activeConvo) return
+    const ch = supabase.channel('msg-' + activeConvo.id).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: 'conversation_id=eq.' + activeConvo.id }, (p) => { setMessages(prev => [...prev, p.new as Message]) }).subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [activeConvo])
+
+  async function loadConversations() {
+    const { data: convos } = await supabase.from('conversations').select('*').or('student_id.eq.' + userId + ',tutor_id.eq.' + userId).order('last_message_at', { ascending: false })
+    if (convos) {
+      const r: Conversation[] = []
+      for (const c of convos) { const oid = c.student_id === userId ? c.tutor_id : c.student_id; const { data: op } = await supabase.from('profiles').select('full_name, role').eq('id', oid).single(); r.push({ ...c, other_name: op?.full_name || 'Unknown', other_role: op?.role || 'user' }) }
+      setConversations(r)
     }
+  }
+
+  async function openConvo(c: Conversation) {
+    setActiveConvo(c)
+    const { data } = await supabase.from('messages').select('*').eq('conversation_id', c.id).order('created_at', { ascending: true })
+    if (data) setMessages(data)
+  }
+
+  async function send(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newMessage.trim() || !activeConvo) return
+    const content = newMessage.trim(); setNewMessage('')
+    await supabase.from('messages').insert({ conversation_id: activeConvo.id, sender_id: userId, content })
+    await supabase.from('conversations').update({ last_message: content, last_message_at: new Date().toISOString() }).eq('id', activeConvo.id)
+  }
+
+  if (activeConvo) return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid #F5EDE3', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <button onClick={() => setActiveConvo(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '20px', padding: '4px' }}>←</button>
+        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#FFF0DB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px' }}>{activeConvo.other_role === 'tutor' ? '👩‍🏫' : '🎓'}</div>
+        <p style={{ fontWeight: 800, fontSize: '15px', fontFamily: 'Nunito', margin: 0 }}>{activeConvo.other_name}</p>
+      </div>
+      <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {messages.length === 0 && <p style={{ textAlign: 'center', color: '#6B5B4E', padding: '40px 0' }}>Say hello! 👋</p>}
+        {messages.map(m => (
+          <div key={m.id} style={{ alignSelf: m.sender_id === userId ? 'flex-end' : 'flex-start', maxWidth: '80%' }}>
+            <div style={{ padding: '10px 14px', borderRadius: m.sender_id === userId ? '14px 14px 4px 14px' : '14px 14px 14px 4px', background: m.sender_id === userId ? 'linear-gradient(135deg, #E67E22, #CA6F1E)' : '#F5EDE3', color: m.sender_id === userId ? 'white' : '#2C1810', fontSize: '14px', lineHeight: 1.4 }}>{m.content}</div>
+            <p style={{ fontSize: '10px', color: '#A0937E', marginTop: '2px', textAlign: m.sender_id === userId ? 'right' : 'left' }}>{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+      <form onSubmit={send} style={{ padding: '10px 12px', borderTop: '1px solid #F5EDE3', display: 'flex', gap: '8px' }}>
+        <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Type a message..." style={{ flex: 1, padding: '10px 14px', borderRadius: '12px', border: '2px solid #E8DFD4', fontSize: '16px', outline: 'none', background: 'white', color: '#2C1810', fontFamily: 'Quicksand' }} />
+        <button type="submit" style={{ padding: '10px 16px', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, #E67E22, #CA6F1E)', color: 'white', fontWeight: 800, cursor: 'pointer', fontSize: '14px', fontFamily: 'Nunito' }}>Send</button>
+      </form>
+    </div>
+  )
+
+  return (
+    <div style={{ padding: '16px' }}>
+      <h2 style={{ fontSize: '22px', fontWeight: 900, fontFamily: 'Nunito', marginBottom: '16px' }}>💬 Messages</h2>
+      {conversations.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px 20px' }}><div style={{ fontSize: '48px', marginBottom: '8px' }}>🦫</div><p style={{ fontWeight: 700, fontFamily: 'Nunito', color: '#6B5B4E' }}>No conversations yet</p></div>
+      ) : conversations.map(c => (
+        <div key={c.id} onClick={() => openConvo(c)} style={{ padding: '14px', cursor: 'pointer', borderBottom: '1px solid #F5EDE3', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: '#FFF0DB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0 }}>{c.other_role === 'tutor' ? '👩‍🏫' : '🎓'}</div>
+          <div style={{ overflow: 'hidden', flex: 1 }}><p style={{ fontWeight: 800, fontSize: '15px', fontFamily: 'Nunito', margin: 0 }}>{c.other_name}</p><p style={{ fontSize: '13px', color: '#6B5B4E', margin: '2px 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.last_message || 'No messages yet'}</p></div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ==================== SEARCH TAB ====================
+function SearchTab({ userId }: { userId: string }) {
+  const [tutors, setTutors] = useState<TutorWithProfile[]>([])
+  const [loading, setLoading] = useState(true)
+  const [startingChat, setStartingChat] = useState<string | null>(null)
+  const [subjectFilter, setSubjectFilter] = useState('')
+  const SUBJECTS = ['A-Math', 'E-Math', 'H2 Math', 'H2 Physics', 'H2 Chemistry', 'H2 Biology', 'H2 Economics', 'English', 'General Paper', 'Chinese', 'Computing']
+
+  useEffect(() => { loadData() }, [])
+  async function loadData() {
+    let sData: StudentData = { subjects: [], level: null, location_area: null, budget_min: null, budget_max: null, learning_style: null }
+    const { data: p } = await supabase.from('profiles').select('role').eq('id', userId).single()
+    if (p?.role === 'student') { const { data: sp } = await supabase.from('student_profiles').select('*').eq('id', userId).single(); if (sp) sData = sp }
+    const { data: tp } = await supabase.from('profiles').select('id, full_name, bio').eq('role', 'tutor')
+    if (tp) { const r: TutorWithProfile[] = []; for (const t of tp) { const { data: d } = await supabase.from('tutor_profiles').select('*').eq('id', t.id).single(); if (d) { const tutor: TutorWithProfile = { ...t, tutor_profile: d }; tutor.matchScore = calculateMatch(tutor, sData); r.push(tutor) } }; r.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0)); setTutors(r) }
     setLoading(false)
   }
 
-  async function saveProfile() {
-    if (!profile) return
-    setSaving(true); setMessage('')
-    await supabase.from('profiles').update({ full_name: profile.full_name, bio: profile.bio, updated_at: new Date().toISOString() }).eq('id', profile.id)
-    if (profile.role === 'student' && studentProfile) await supabase.from('student_profiles').update({ level: studentProfile.level, subjects: studentProfile.subjects, location_area: studentProfile.location_area, budget_min: studentProfile.budget_min, budget_max: studentProfile.budget_max, learning_style: studentProfile.learning_style }).eq('id', profile.id)
-    if (profile.role === 'tutor' && tutorProfile) await supabase.from('tutor_profiles').update({ subjects: tutorProfile.subjects, levels: tutorProfile.levels, hourly_rate: tutorProfile.hourly_rate, location_area: tutorProfile.location_area, teaching_style: tutorProfile.teaching_style, experience_years: tutorProfile.experience_years, qualifications: tutorProfile.qualifications }).eq('id', profile.id)
-    setMessage('Profile saved! 🦫'); setSaving(false)
-    setTimeout(() => setMessage(''), 3000)
+  async function startChat(tutorId: string) {
+    if (startingChat) return; setStartingChat(tutorId)
+    try { const { data: ex } = await supabase.from('conversations').select('id').eq('student_id', userId).eq('tutor_id', tutorId); if (!ex || ex.length === 0) await supabase.from('conversations').insert({ student_id: userId, tutor_id: tutorId }) } finally { setStartingChat(null) }
+  }
+
+  const filtered = tutors.filter(t => !subjectFilter || (t.tutor_profile.subjects || []).includes(subjectFilter))
+
+  if (loading) return <div style={{ textAlign: 'center', padding: '60px 20px' }}><div style={{ fontSize: '48px', marginBottom: '8px' }}>🦫</div><p style={{ fontWeight: 700, color: '#E67E22', fontFamily: 'Nunito' }}>Finding matches...</p></div>
+
+  return (
+    <div style={{ padding: '16px' }}>
+      <h2 style={{ fontSize: '22px', fontWeight: 900, fontFamily: 'Nunito', marginBottom: '12px' }}>🎯 Find Tutors</h2>
+      <div style={{ overflowX: 'auto', marginBottom: '16px', display: 'flex', gap: '6px', paddingBottom: '4px' }}>
+        <button onClick={() => setSubjectFilter('')} style={{ padding: '6px 14px', borderRadius: '10px', border: 'none', background: !subjectFilter ? '#E67E22' : 'white', color: !subjectFilter ? 'white' : '#6B5B4E', fontWeight: 700, cursor: 'pointer', fontSize: '12px', fontFamily: 'Nunito', flexShrink: 0 }}>All</button>
+        {SUBJECTS.map(s => <button key={s} onClick={() => setSubjectFilter(s)} style={{ padding: '6px 14px', borderRadius: '10px', border: 'none', background: subjectFilter === s ? '#E67E22' : 'white', color: subjectFilter === s ? 'white' : '#6B5B4E', fontWeight: 700, cursor: 'pointer', fontSize: '12px', fontFamily: 'Nunito', flexShrink: 0, whiteSpace: 'nowrap' }}>{s}</button>)}
+      </div>
+      <p style={{ fontSize: '13px', color: '#6B5B4E', marginBottom: '12px' }}>{filtered.length} tutors</p>
+      {filtered.map(tutor => (
+        <div key={tutor.id} style={{ background: 'white', borderRadius: '16px', padding: '16px', border: '1px solid #E8DFD4', marginBottom: '10px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: '#FFF0DB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>👩‍🏫</div>
+              <div><h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, fontFamily: 'Nunito' }}>{tutor.full_name}</h3><p style={{ fontSize: '12px', color: '#6B5B4E', margin: '2px 0 0' }}>{tutor.tutor_profile.location_area} • {tutor.tutor_profile.experience_years || 0}yr</p></div>
+            </div>
+            <div style={{ padding: '4px 10px', borderRadius: '14px', fontWeight: 900, fontSize: '13px', color: 'white', fontFamily: 'Nunito', background: (tutor.matchScore || 0) >= 80 ? 'linear-gradient(135deg, #27AE60, #1E8449)' : (tutor.matchScore || 0) >= 60 ? 'linear-gradient(135deg, #E67E22, #CA6F1E)' : '#6B5B4E' }}>{tutor.matchScore}%</div>
+          </div>
+          {tutor.bio && <p style={{ fontSize: '13px', color: '#6B5B4E', lineHeight: 1.4, marginBottom: '8px' }}>{tutor.bio}</p>}
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>{(tutor.tutor_profile.subjects || []).slice(0, 4).map(s => <span key={s} style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, background: '#FFF0DB', color: '#E67E22', fontFamily: 'Nunito' }}>{s}</span>)}</div>
+          <div style={{ display: 'flex', gap: '12px', fontSize: '13px', color: '#6B5B4E', marginBottom: '10px' }}><span style={{ fontWeight: 700 }}>⭐ {tutor.tutor_profile.rating.toFixed(1)}</span><span style={{ fontWeight: 700 }}>💰 S${tutor.tutor_profile.hourly_rate}/hr</span></div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={() => startChat(tutor.id)} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #E67E22, #CA6F1E)', color: 'white', fontWeight: 800, cursor: 'pointer', fontSize: '13px', fontFamily: 'Nunito' }}>{startingChat === tutor.id ? '⏳' : '💬 Message'}</button>
+            <Link href={'/booking?tutor=' + tutor.id} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '2px solid #E8DFD4', background: 'white', color: '#2C1810', fontWeight: 800, cursor: 'pointer', fontSize: '13px', fontFamily: 'Nunito', textAlign: 'center', textDecoration: 'none' }}>📅 Book</Link>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ==================== PROFILE TAB ====================
+function ProfileTab({ profile, studentProfile, tutorProfile, onSave, onLogout }: { profile: Profile; studentProfile: StudentProfile | null; tutorProfile: TutorProfileData | null; onSave: (p: Profile, sp: StudentProfile | null, tp: TutorProfileData | null) => void; onLogout: () => void }) {
+  const [p, setP] = useState(profile)
+  const [sp, setSp] = useState(studentProfile)
+  const [tp, setTp] = useState(tutorProfile)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+  const SUBJECTS = ['A-Math', 'E-Math', 'H2 Math', 'H2 Physics', 'H2 Chemistry', 'H2 Biology', 'H2 Economics', 'English', 'General Paper', 'Chinese', 'Malay', 'Tamil', 'History', 'Geography', 'Literature', 'Computing']
+  const AREAS = ['Ang Mo Kio', 'Bedok', 'Bishan', 'Bukit Batok', 'Bukit Merah', 'Bukit Timah', 'Clementi', 'Hougang', 'Jurong East', 'Jurong West', 'Kallang', 'Marine Parade', 'Pasir Ris', 'Punggol', 'Queenstown', 'Sengkang', 'Serangoon', 'Tampines', 'Toa Payoh', 'Woodlands', 'Yishun']
+  const LEVELS = ['O-Level', 'A-Level', 'IP', 'IB']
+  const selectedSubjects = p.role === 'student' ? (sp?.subjects || []) : (tp?.subjects || [])
+  const toggleSubject = (s: string) => { if (p.role === 'student' && sp) { const c = sp.subjects || []; setSp({ ...sp, subjects: c.includes(s) ? c.filter(x => x !== s) : [...c, s] }) }; if (p.role === 'tutor' && tp) { const c = tp.subjects || []; setTp({ ...tp, subjects: c.includes(s) ? c.filter(x => x !== s) : [...c, s] }) } }
+  const chipStyle = (active: boolean) => ({ padding: '6px 12px', borderRadius: '10px', fontSize: '12px', fontWeight: 700 as const, background: active ? '#E67E22' : 'white', color: active ? 'white' : '#2C1810', border: active ? 'none' : '2px solid #E8DFD4', cursor: 'pointer' as const, fontFamily: 'Nunito' })
+  const inputStyle = { width: '100%', padding: '10px 14px', borderRadius: '10px', border: '2px solid #E8DFD4', fontSize: '16px', background: 'white', color: '#2C1810', outline: 'none', fontFamily: 'Quicksand' }
+
+  async function save() {
+    setSaving(true); setMsg('')
+    await onSave(p, sp, tp)
+    setMsg('Saved! 🦫'); setSaving(false)
+    setTimeout(() => setMsg(''), 2000)
+  }
+
+  return (
+    <div style={{ padding: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <h2 style={{ fontSize: '22px', fontWeight: 900, fontFamily: 'Nunito' }}>{p.role === 'student' ? '🎓' : '👩‍🏫'} Profile</h2>
+        <button onClick={onLogout} style={{ fontSize: '13px', color: '#E74C3C', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Nunito' }}>Log out</button>
+      </div>
+      {msg && <div style={{ padding: '10px', borderRadius: '10px', background: 'rgba(39,174,96,0.08)', border: '1px solid rgba(39,174,96,0.2)', marginBottom: '12px', textAlign: 'center' }}><p style={{ fontSize: '13px', color: '#27AE60', fontWeight: 700, margin: 0, fontFamily: 'Nunito' }}>{msg}</p></div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div><label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px', fontFamily: 'Nunito' }}>Name</label><input style={inputStyle} value={p.full_name} onChange={e => setP({ ...p, full_name: e.target.value })} /></div>
+        <div><label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px', fontFamily: 'Nunito' }}>About</label><textarea rows={2} value={p.bio || ''} onChange={e => setP({ ...p, bio: e.target.value })} placeholder="Tell us about yourself..." style={{ ...inputStyle, resize: 'none' as const }} /></div>
+        {p.role === 'student' && sp && <div><label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px', fontFamily: 'Nunito' }}>Level</label><div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>{LEVELS.map(l => <button key={l} type="button" onClick={() => setSp({ ...sp, level: l })} style={chipStyle(sp.level === l)}>{l}</button>)}</div></div>}
+        <div><label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px', fontFamily: 'Nunito' }}>Subjects</label><div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>{SUBJECTS.map(s => <button key={s} type="button" onClick={() => toggleSubject(s)} style={chipStyle(selectedSubjects.includes(s))}>{s}</button>)}</div></div>
+        <div><label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px', fontFamily: 'Nunito' }}>Area</label><select style={inputStyle} value={(p.role === 'student' ? sp?.location_area : tp?.location_area) || ''} onChange={e => { if (p.role === 'student' && sp) setSp({ ...sp, location_area: e.target.value }); if (p.role === 'tutor' && tp) setTp({ ...tp, location_area: e.target.value }) }}><option value="">Select area</option>{AREAS.map(a => <option key={a} value={a}>{a}</option>)}</select></div>
+        {p.role === 'student' && sp && <div style={{ display: 'flex', gap: '10px' }}><div style={{ flex: 1 }}><label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px', fontFamily: 'Nunito' }}>Min $/hr</label><input type="number" placeholder="25" style={inputStyle} value={sp.budget_min || ''} onChange={e => setSp({ ...sp, budget_min: parseInt(e.target.value) || null })} /></div><div style={{ flex: 1 }}><label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px', fontFamily: 'Nunito' }}>Max $/hr</label><input type="number" placeholder="60" style={inputStyle} value={sp.budget_max || ''} onChange={e => setSp({ ...sp, budget_max: parseInt(e.target.value) || null })} /></div></div>}
+        {p.role === 'tutor' && tp && <div style={{ display: 'flex', gap: '10px' }}><div style={{ flex: 1 }}><label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px', fontFamily: 'Nunito' }}>Rate S$/hr</label><input type="number" placeholder="45" style={inputStyle} value={tp.hourly_rate || ''} onChange={e => setTp({ ...tp, hourly_rate: parseInt(e.target.value) || null })} /></div><div style={{ flex: 1 }}><label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px', fontFamily: 'Nunito' }}>Years exp</label><input type="number" placeholder="2" style={inputStyle} value={tp.experience_years || ''} onChange={e => setTp({ ...tp, experience_years: parseInt(e.target.value) || null })} /></div></div>}
+        <button onClick={save} disabled={saving} style={{ padding: '12px', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, #E67E22, #CA6F1E)', color: 'white', fontWeight: 800, cursor: 'pointer', fontSize: '15px', fontFamily: 'Nunito', opacity: saving ? 0.7 : 1, boxShadow: '0 4px 12px rgba(230,126,34,0.3)' }}>{saving ? '⏳' : '💾 Save Profile'}</button>
+      </div>
+    </div>
+  )
+}
+
+// ==================== MAIN APP ====================
+export default function AppShell() {
+  const router = useRouter()
+  const [userId, setUserId] = useState<string | null>(null)
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null)
+  const [tutorProfile, setTutorProfile] = useState<TutorProfileData | null>(null)
+  const [bookings, setBookings] = useState<Booking[]>([])
+  const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState(2) // 0=bookings, 1=chat, 2=search, 3=profile
+  const [touchStart, setTouchStart] = useState(0)
+  const [touchEnd, setTouchEnd] = useState(0)
+  const contentRef = useRef<HTMLDivElement>(null)
+
+  const tabs = [
+    { id: 0, icon: '📅', label: 'Bookings' },
+    { id: 1, icon: '💬', label: 'Chat' },
+    { id: 2, icon: '🔍', label: 'Search' },
+    { id: 3, icon: '👤', label: 'Profile' },
+  ]
+
+  useEffect(() => { loadAll() }, [])
+
+  async function loadAll() {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) { router.push('/auth'); return }
+    setUserId(session.user.id)
+    const { data: pd } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
+    if (pd) {
+      setProfile(pd)
+      if (pd.role === 'student') { const { data } = await supabase.from('student_profiles').select('*').eq('id', session.user.id).single(); if (data) setStudentProfile(data) }
+      else { const { data } = await supabase.from('tutor_profiles').select('*').eq('id', session.user.id).single(); if (data) setTutorProfile(data) }
+    }
+    const { data: bk } = await supabase.from('bookings').select('*').or('student_id.eq.' + session.user.id + ',tutor_id.eq.' + session.user.id).order('start_time', { ascending: true })
+    if (bk) { const enriched: Booking[] = []; for (const b of bk) { const oid = b.student_id === session.user.id ? b.tutor_id : b.student_id; const { data: op } = await supabase.from('profiles').select('full_name, role').eq('id', oid).single(); enriched.push({ ...b, other_name: op?.full_name || 'Unknown', other_role: op?.role || 'user' }) }; setBookings(enriched) }
+    setLoading(false)
+  }
+
+  async function handleSaveProfile(p: Profile, sp: StudentProfile | null, tp: TutorProfileData | null) {
+    await supabase.from('profiles').update({ full_name: p.full_name, bio: p.bio, updated_at: new Date().toISOString() }).eq('id', p.id)
+    if (p.role === 'student' && sp) await supabase.from('student_profiles').update({ level: sp.level, subjects: sp.subjects, location_area: sp.location_area, budget_min: sp.budget_min, budget_max: sp.budget_max, learning_style: sp.learning_style }).eq('id', p.id)
+    if (p.role === 'tutor' && tp) await supabase.from('tutor_profiles').update({ subjects: tp.subjects, levels: tp.levels, hourly_rate: tp.hourly_rate, location_area: tp.location_area, teaching_style: tp.teaching_style, experience_years: tp.experience_years, qualifications: tp.qualifications }).eq('id', p.id)
+    setProfile(p); setStudentProfile(sp); setTutorProfile(tp)
   }
 
   async function handleLogout() { await supabase.auth.signOut(); router.push('/') }
 
-  function toggleSubject(subject: string) {
-    if (profile?.role === 'student' && studentProfile) { const c = studentProfile.subjects || []; setStudentProfile({ ...studentProfile, subjects: c.includes(subject) ? c.filter(s => s !== subject) : [...c, subject] }) }
-    if (profile?.role === 'tutor' && tutorProfile) { const c = tutorProfile.subjects || []; setTutorProfile({ ...tutorProfile, subjects: c.includes(subject) ? c.filter(s => s !== subject) : [...c, subject] }) }
+  function handleTouchStart(e: TouchEvent) { setTouchStart(e.targetTouches[0].clientX) }
+  function handleTouchMove(e: TouchEvent) { setTouchEnd(e.targetTouches[0].clientX) }
+  function handleTouchEnd() {
+    if (!touchStart || !touchEnd) return
+    const distance = touchStart - touchEnd
+    if (Math.abs(distance) > 60) {
+      if (distance > 0 && activeTab < 3) setActiveTab(activeTab + 1) // swipe left
+      if (distance < 0 && activeTab > 0) setActiveTab(activeTab - 1) // swipe right
+    }
+    setTouchStart(0); setTouchEnd(0)
   }
 
-  function toggleLevel(level: string) {
-    if (tutorProfile) { const c = tutorProfile.levels || []; setTutorProfile({ ...tutorProfile, levels: c.includes(level) ? c.filter(l => l !== level) : [...c, level] }) }
-  }
-
-  if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FFF8F0', fontFamily: 'Quicksand, sans-serif', color: '#2C1810' }}>
-      <div style={{ textAlign: 'center' }}><div style={{ fontSize: '60px', marginBottom: '16px' }}>🦫</div><p style={{ fontWeight: 700, color: '#E67E22', fontFamily: 'Nunito' }}>Loading your profile...</p></div>
-    </div>
-  )
-
-  if (!profile) return null
-  const selectedSubjects = profile.role === 'student' ? (studentProfile?.subjects || []) : (tutorProfile?.subjects || [])
-  const S = { label: { fontSize: '13px', fontWeight: 700 as const, display: 'block' as const, marginBottom: '6px', fontFamily: 'Nunito', color: '#2C1810' }, input: { width: '100%', padding: '12px', borderRadius: '12px', border: '2px solid #E8DFD4', fontSize: '14px', background: 'white', color: '#2C1810', outline: 'none', fontFamily: 'Quicksand' }, chip: (active: boolean, color: string) => ({ padding: '8px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 as const, background: active ? color : 'white', color: active ? 'white' : '#2C1810', border: active ? 'none' : '2px solid #E8DFD4', cursor: 'pointer' as const, fontFamily: 'Nunito' }) }
+  if (loading) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FFF8F0', color: '#2C1810', fontFamily: 'Quicksand, sans-serif' }}><div style={{ textAlign: 'center' }}><div style={{ fontSize: '60px', marginBottom: '12px' }}>🦫</div><p style={{ fontWeight: 700, color: '#E67E22', fontFamily: 'Nunito' }}>Loading TutorMatch...</p></div></div>
+  if (!profile || !userId) return null
 
   return (
-    <div style={{ minHeight: '100vh', background: '#FFF8F0', color: '#2C1810', fontFamily: 'Quicksand, sans-serif' }}>
-      <nav style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', maxWidth: '900px', margin: '0 auto' }}>
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none', color: '#2C1810' }}>
-          <span style={{ fontSize: '24px' }}>🦫</span><span style={{ fontWeight: 900, fontSize: '18px', color: '#E67E22', fontFamily: 'Nunito' }}>TutorMatch</span>
-        </Link>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <span style={{ fontSize: '14px', color: '#6B5B4E' }}>{profile.role === 'student' ? '🎓' : '👩‍🏫'} {profile.full_name}</span>
-          <button onClick={handleLogout} style={{ fontSize: '13px', color: '#E74C3C', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Nunito' }}>Log out</button>
+    <div style={{ minHeight: '100vh', background: '#FFF8F0', color: '#2C1810', fontFamily: 'Quicksand, sans-serif', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #F5EDE3', background: '#FFF8F0', position: 'sticky', top: 0, zIndex: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '24px' }}>🦫</span>
+          <span style={{ fontFamily: 'Nunito', fontWeight: 900, fontSize: '18px', color: '#E67E22' }}>TutorMatch</span>
         </div>
-      </nav>
+        <span style={{ fontSize: '13px', color: '#6B5B4E', fontWeight: 600 }}>{profile.role === 'student' ? '🎓' : '👩‍🏫'} {profile.full_name.split(' ')[0]}</span>
+      </div>
 
-      <div style={{ maxWidth: '900px', margin: '0 auto', padding: '0 24px 60px' }}>
-        <div style={{ textAlign: 'center', marginBottom: '24px', paddingTop: '8px' }}>
-          <div style={{ fontSize: '48px', marginBottom: '8px' }}>{profile.role === 'student' ? '🎓' : '👩‍🏫'}</div>
-          <h1 style={{ fontSize: '28px', fontWeight: 900, marginBottom: '4px', fontFamily: 'Nunito' }}>Welcome, {profile.full_name.split(' ')[0]}!</h1>
-          <p style={{ color: '#6B5B4E', fontSize: '15px' }}>{profile.role === 'student' ? 'Find your perfect tutor match' : 'Manage your tutoring profile'}</p>
-        </div>
+      {/* Content area with swipe */}
+      <div ref={contentRef} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} style={{ flex: 1, overflow: 'auto', paddingBottom: '70px' }}>
+        {activeTab === 0 && <BookingTab userId={userId} bookings={bookings} onRefresh={loadAll} />}
+        {activeTab === 1 && <ChatTab userId={userId} />}
+        {activeTab === 2 && <SearchTab userId={userId} />}
+        {activeTab === 3 && <ProfileTab profile={profile} studentProfile={studentProfile} tutorProfile={tutorProfile} onSave={handleSaveProfile} onLogout={handleLogout} />}
+      </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '24px' }}>
-          {[
-            { href: '/search', icon: '🔍', label: 'Find Tutors' },
-            { href: '/chat', icon: '💬', label: 'Messages' },
-            { href: '/booking', icon: '📅', label: 'Bookings' },
-          ].map(card => (
-            <Link key={card.href} href={card.href} style={{ padding: '20px 16px', background: 'white', borderRadius: '16px', border: '1px solid #E8DFD4', textDecoration: 'none', color: '#2C1810', textAlign: 'center', transition: 'all 0.3s', boxShadow: '0 2px 8px rgba(139,105,20,0.04)' }}>
-              <div style={{ fontSize: '32px', marginBottom: '6px' }}>{card.icon}</div>
-              <p style={{ fontWeight: 800, fontSize: '14px', margin: 0, fontFamily: 'Nunito' }}>{card.label}</p>
-            </Link>
-          ))}
-        </div>
-
-        {message && <div style={{ padding: '12px', borderRadius: '12px', marginBottom: '16px', textAlign: 'center', background: 'rgba(39,174,96,0.08)', border: '1px solid rgba(39,174,96,0.2)' }}><p style={{ fontSize: '14px', color: '#27AE60', fontWeight: 700, margin: 0, fontFamily: 'Nunito' }}>{message}</p></div>}
-
-        <div style={{ background: 'white', borderRadius: '20px', padding: '24px', border: '1px solid #E8DFD4', boxShadow: '0 4px 16px rgba(139,105,20,0.04)' }}>
-          <h2 style={{ fontSize: '20px', fontWeight: 900, marginBottom: '20px', fontFamily: 'Nunito' }}>{profile.role === 'student' ? '🎓 Student Profile' : '👩‍🏫 Tutor Profile'}</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div><label style={S.label}>Full Name</label><input style={S.input} value={profile.full_name} onChange={e => setProfile({ ...profile, full_name: e.target.value })} /></div>
-            <div><label style={S.label}>About Me</label><textarea rows={3} placeholder={profile.role === 'student' ? 'What are you looking for in a tutor?' : 'Tell students about your teaching approach...'} value={profile.bio || ''} onChange={e => setProfile({ ...profile, bio: e.target.value })} style={{ ...S.input, resize: 'none' as const }} /></div>
-
-            {profile.role === 'student' && studentProfile && <div><label style={S.label}>Level</label><div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>{LEVELS.map(level => <button key={level} type="button" onClick={() => setStudentProfile({ ...studentProfile, level })} style={S.chip(studentProfile.level === level, '#E67E22')}>{level}</button>)}</div></div>}
-            {profile.role === 'tutor' && tutorProfile && <div><label style={S.label}>Levels You Teach</label><div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>{LEVELS.map(level => <button key={level} type="button" onClick={() => toggleLevel(level)} style={S.chip((tutorProfile.levels || []).includes(level), '#2BA5A5')}>{level}</button>)}</div></div>}
-
-            <div><label style={S.label}>{profile.role === 'student' ? 'Subjects You Need Help With' : 'Subjects You Teach'}</label><div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>{SUBJECTS.map(subject => <button key={subject} type="button" onClick={() => toggleSubject(subject)} style={S.chip(selectedSubjects.includes(subject), '#E67E22')}>{subject}</button>)}</div></div>
-
-            <div><label style={S.label}>Area</label><select style={S.input} value={(profile.role === 'student' ? studentProfile?.location_area : tutorProfile?.location_area) || ''} onChange={e => { if (profile.role === 'student' && studentProfile) setStudentProfile({ ...studentProfile, location_area: e.target.value }); if (profile.role === 'tutor' && tutorProfile) setTutorProfile({ ...tutorProfile, location_area: e.target.value }) }}><option value="">Select your area</option>{AREAS.map(area => <option key={area} value={area}>{area}</option>)}</select></div>
-
-            {profile.role === 'student' && studentProfile && <div style={{ display: 'flex', gap: '12px' }}><div style={{ flex: 1 }}><label style={S.label}>Min Budget ($/hr)</label><input type="number" placeholder="25" value={studentProfile.budget_min || ''} onChange={e => setStudentProfile({ ...studentProfile, budget_min: parseInt(e.target.value) || null })} style={S.input} /></div><div style={{ flex: 1 }}><label style={S.label}>Max Budget ($/hr)</label><input type="number" placeholder="60" value={studentProfile.budget_max || ''} onChange={e => setStudentProfile({ ...studentProfile, budget_max: parseInt(e.target.value) || null })} style={S.input} /></div></div>}
-
-            {profile.role === 'tutor' && tutorProfile && <div style={{ display: 'flex', gap: '12px' }}><div style={{ flex: 1 }}><label style={S.label}>Hourly Rate (S$)</label><input type="number" placeholder="45" value={tutorProfile.hourly_rate || ''} onChange={e => setTutorProfile({ ...tutorProfile, hourly_rate: parseInt(e.target.value) || null })} style={S.input} /></div><div style={{ flex: 1 }}><label style={S.label}>Years Experience</label><input type="number" placeholder="2" value={tutorProfile.experience_years || ''} onChange={e => setTutorProfile({ ...tutorProfile, experience_years: parseInt(e.target.value) || null })} style={S.input} /></div></div>}
-
-            {profile.role === 'tutor' && tutorProfile && <div><label style={S.label}>Qualifications</label><textarea rows={2} placeholder="e.g. NUS Computer Science Year 3" value={tutorProfile.qualifications || ''} onChange={e => setTutorProfile({ ...tutorProfile, qualifications: e.target.value })} style={{ ...S.input, resize: 'none' as const }} /></div>}
-
-            <div><label style={S.label}>{profile.role === 'student' ? 'How Do You Learn Best?' : 'Your Teaching Style'}</label><div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>{STYLES.map(style => { const labels: Record<string, string> = { visual: '👁️ Visual', practice: '✍️ Practice', discussion: '💬 Discussion', structured: '📋 Structured' }; const cur = profile.role === 'student' ? studentProfile?.learning_style : tutorProfile?.teaching_style; return <button key={style} type="button" onClick={() => { if (profile.role === 'student' && studentProfile) setStudentProfile({ ...studentProfile, learning_style: style }); if (profile.role === 'tutor' && tutorProfile) setTutorProfile({ ...tutorProfile, teaching_style: style }) }} style={S.chip(cur === style, '#E67E22')}>{labels[style]}</button> })}</div></div>
-
-            <button onClick={saveProfile} disabled={saving} style={{ padding: '14px', borderRadius: '14px', border: 'none', background: 'linear-gradient(135deg, #E67E22, #CA6F1E)', color: 'white', fontWeight: 800, cursor: saving ? 'wait' : 'pointer', fontSize: '16px', opacity: saving ? 0.7 : 1, fontFamily: 'Nunito', boxShadow: '0 4px 16px rgba(230,126,34,0.3)' }}>
-              {saving ? '⏳ Saving...' : '💾 Save Profile'}
-            </button>
-          </div>
-        </div>
+      {/* Bottom tab bar - Instagram style */}
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'white', borderTop: '1px solid #F5EDE3', display: 'flex', justifyContent: 'space-around', padding: '8px 0 env(safe-area-inset-bottom, 8px)', zIndex: 30 }}>
+        {tabs.map(tab => (
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', padding: '4px 16px', WebkitTapHighlightColor: 'transparent' }}>
+            <span style={{ fontSize: '22px', transition: 'transform 0.2s', transform: activeTab === tab.id ? 'scale(1.2)' : 'scale(1)' }}>{tab.icon}</span>
+            <span style={{ fontSize: '10px', fontWeight: 800, fontFamily: 'Nunito', color: activeTab === tab.id ? '#E67E22' : '#A0937E', transition: 'color 0.2s' }}>{tab.label}</span>
+            {activeTab === tab.id && <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#E67E22', marginTop: '1px' }} />}
+          </button>
+        ))}
       </div>
     </div>
   )
